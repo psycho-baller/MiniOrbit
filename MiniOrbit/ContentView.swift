@@ -5,7 +5,9 @@
 //  Created by Rami Maalouf on 2025-02-08.
 //
 
+import Combine
 import SwiftUI
+import Vapi
 
 // MARK: - Models
 
@@ -174,6 +176,104 @@ class OrbitData: ObservableObject {
             room.participantIDs.contains(blockedID)
                 && room.participantIDs.contains(blockerID)
         }
+    }
+}
+
+class CallManager: ObservableObject {
+    enum CallState {
+        case started, loading, ended
+    }
+
+    @Published var callState: CallState = .ended
+    var vapiEvents = [Vapi.Event]()
+    private var cancellables = Set<AnyCancellable>()
+    let vapi: Vapi
+
+    init() {
+        vapi = Vapi(
+            publicKey: ""
+        )
+    }
+
+    func setupVapi() {
+        vapi.eventPublisher
+            .sink { [weak self] event in
+                self?.vapiEvents.append(event)
+                switch event {
+                case .callDidStart:
+                    self?.callState = .started
+                case .callDidEnd:
+                    self?.callState = .ended
+                case .error(let error):
+                    print("Error: \(error)")
+                default:
+                    print("Unknown event: \(event)")
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    @MainActor
+    func handleCallAction() async {
+        if callState == .ended {
+            await startCall()
+        } else {
+            endCall()
+        }
+    }
+
+    @MainActor
+    func startCall() async {
+        callState = .loading
+        let assistant =
+            [
+                "model": [
+                    "provider": "openai",
+                    "model": "gpt-3.5-turbo",
+                    "messages": [
+                        ["role": "system", "content": "You are an assistant."]
+                    ],
+                ],
+                "firstMessage": "Hey there",
+                "voice": "jennifer-playht",
+            ] as [String: Any]
+        do {
+            try await vapi.start(assistant: assistant)
+        } catch {
+            print("Error starting call: \(error)")
+            callState = .ended
+        }
+    }
+
+    func endCall() {
+        vapi.stop()
+    }
+}
+
+extension CallManager {
+    var callStateText: String {
+        switch callState {
+        case .started: return "Call in Progress"
+        case .loading: return "Connecting..."
+        case .ended: return "Call Off"
+        }
+    }
+
+    var callStateColor: Color {
+        switch callState {
+        case .started: return .green.opacity(0.8)
+        case .loading: return .orange.opacity(0.8)
+        case .ended: return .gray.opacity(0.8)
+        }
+    }
+
+    var buttonText: String {
+        callState == .loading
+            ? "Loading..." : (callState == .ended ? "Start Call" : "End Call")
+    }
+
+    var buttonColor: Color {
+        callState == .loading ? .gray : (callState == .ended ? .green : .red)
     }
 }
 
@@ -561,38 +661,66 @@ struct ChatRoomView: View {
 
 struct MainTabView: View {
     @ObservedObject var orbitData: OrbitData
+    @StateObject private var callManager = CallManager()
 
     var body: some View {
-        TabView {
-            NavigationStack {
-                ProfileView(orbitData: orbitData)
-            }
-            .tabItem {
-                Label("Profile", systemImage: "person.circle")
-            }
-
-            NavigationStack {
-                VStack(spacing: 20) {
-                    NavigationLink(
-                        "Create Meetup Request",
-                        destination: CreateMeetupRequestView(
-                            orbitData: orbitData))
-                    NavigationLink(
-                        "Browse Requests",
-                        destination: BrowseMeetupRequestsView(
-                            orbitData: orbitData))
+        ZStack {
+            TabView {
+                NavigationStack {
+                    VStack(spacing: 20) {
+                        NavigationLink(
+                            "Create Meetup Request",
+                            destination: CreateMeetupRequestView(
+                                orbitData: orbitData))
+                        NavigationLink(
+                            "Browse Requests",
+                            destination: BrowseMeetupRequestsView(
+                                orbitData: orbitData))
+                    }
+                    .navigationTitle("Meetups")
                 }
-                .navigationTitle("Meetups")
-            }
-            .tabItem {
-                Label("Meetups", systemImage: "calendar")
-            }
+                .tabItem {
+                    Label("Meetups", systemImage: "calendar")
+                }
 
-            NavigationStack {
-                ChatListView(orbitData: orbitData)
+                NavigationStack {
+                    ChatListView(orbitData: orbitData)
+                }
+                .tabItem {
+                    Label("Chats", systemImage: "message")
+                }
+
+                NavigationStack {
+                    ProfileView(orbitData: orbitData)
+                }
+                .tabItem {
+                    Label("Profile", systemImage: "person.circle")
+                }
             }
-            .tabItem {
-                Label("Chats", systemImage: "message")
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button(action: {
+                        Task {
+                            await callManager.handleCallAction()
+                        }
+                    }) {
+                        Image(systemName: "phone.fill")
+                            .resizable()
+                            .frame(width: 25, height: 25)
+                            .padding()
+                            .background(callManager.buttonColor)
+                            .foregroundColor(.white)
+                            .clipShape(Circle())
+                            .shadow(radius: 10)
+                    }
+                    .padding()
+                    .onAppear {
+                        callManager.setupVapi()
+                    }
+                }
+                .padding(.bottom, 30)
             }
         }
     }
