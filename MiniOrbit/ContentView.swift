@@ -11,26 +11,51 @@ import SwiftUI
 
 /// Represents a user in the Orbit app.
 struct User: Identifiable, Codable, Equatable {
-    var id: UUID = UUID()
+    let id: UUID
     var fullName: String
     var email: String
     var university: String
     var interests: [String]
     var universityID: String
     var isVerified: Bool = false
+
+    init(
+        id: UUID = UUID(), fullName: String, email: String,
+        university: String, interests: [String], universityID: String,
+        isVerified: Bool
+    ) {
+        self.id = id
+        self.fullName = fullName
+        self.email = email
+        self.university = university
+        self.interests = interests
+        self.universityID = universityID
+        self.isVerified = isVerified
+    }
 }
 
-/// Represents a meetup request created by a user (Task 3).
+/// Represents a meetup request created by a user.
 struct MeetupRequest: Identifiable, Codable {
-    var id: UUID = UUID()
+    var id: UUID
     var creatorID: UUID
     var time: Date
     var location: String
     var discussionTopic: String
     var conversationStarter: String
     var approvedBy: [UUID] = []  // IDs of users who approved this request.
-}
 
+    init(
+        id: UUID = UUID(), creatorID: UUID, time: Date,
+        location: String, discussionTopic: String, conversationStarter: String
+    ) {
+        self.id = id
+        self.creatorID = creatorID
+        self.time = time
+        self.location = location
+        self.discussionTopic = discussionTopic
+        self.conversationStarter = conversationStarter
+    }
+}
 /// Represents a single chat message.
 struct ChatMessage: Identifiable {
     var id: UUID = UUID()
@@ -50,21 +75,40 @@ struct ChatRoom: Identifiable {
 
 /// This ObservableObject simulates our full‑stack database.
 class OrbitData: ObservableObject {
-    @Published var users: [User] = [
-        User(
-            fullName: "Alice Johnson", email: "alice@example.com", university: "University A",
-            interests: ["Reading", "Hiking"], universityID: "U12345", isVerified: true),
-        User(
-            fullName: "Bob Smith", email: "bob@example.com", university: "University B",
-            interests: ["Cooking", "Gaming"], universityID: "U67890", isVerified: true),
-    ]
+    @Published var users: [User] = []
     @Published var currentUser: User? = nil
-
     @Published var meetupRequests: [MeetupRequest] = []
     @Published var chatRooms: [ChatRoom] = []
     // A mapping from a user id to a list of blocked user ids.
     @Published var blockedUsers: [UUID: [UUID]] = [:]
 
+    init() {
+        // Create users with UUIDs
+        let bob = User(
+            fullName: "Bob Smith", email: "bob@example.com",
+            university: "University B",
+            interests: ["Cooking", "Gaming"], universityID: "U67890",
+            isVerified: true)
+
+        let alice = User(
+            fullName: "Alice Johnson", email: "alice@example.com",
+            university: "University A",
+            interests: ["Reading", "Hiking"], universityID: "U12345",
+            isVerified: true)
+
+        self.users = [alice, bob]
+
+        // Create meetup requests after users are initialized
+        self.meetupRequests = [
+            MeetupRequest(
+                creatorID: bob.id,
+                time: Date().addingTimeInterval(3600),  // 1 hour from now
+                location: "Library",
+                discussionTopic: "Swift Programming",
+                conversationStarter: "What's your favorite Swift feature?"
+            )
+        ]
+    }
     /// Adds a new user and sets them as the current user.
     func addUser(_ user: User) {
         users.append(user)
@@ -87,7 +131,9 @@ class OrbitData: ObservableObject {
 
     /// Approves a meetup request for the given user.
     func approveMeetupRequest(_ request: MeetupRequest, by userID: UUID) {
-        if let index = meetupRequests.firstIndex(where: { $0.id == request.id }) {
+        if let index = meetupRequests.firstIndex(where: { $0.id == request.id })
+        {
+            print("Approving meetup request for \(request.id)")
             // Avoid duplicate approvals.
             if !meetupRequests[index].approvedBy.contains(userID) {
                 meetupRequests[index].approvedBy.append(userID)
@@ -98,12 +144,17 @@ class OrbitData: ObservableObject {
                 meetupRequests[index].approvedBy.contains(userID),
                 userID != creatorID
             {
+                print("Creating chat room for \(creatorID) and \(userID)")
                 // Check if a chat room already exists between these two users.
                 if !chatRooms.contains(where: {
                     $0.participantIDs.sorted() == [creatorID, userID].sorted()
                 }) {
-                    let newChatRoom = ChatRoom(participantIDs: [creatorID, userID])
+                    let newChatRoom = ChatRoom(participantIDs: [
+                        creatorID, userID,
+                    ])
                     chatRooms.append(newChatRoom)
+                    print(" Created chat room: \(newChatRoom)")
+                    print("chatrooms \(chatRooms)")
                 }
             }
         }
@@ -120,7 +171,8 @@ class OrbitData: ObservableObject {
         }
         // Remove any chat room between these users.
         chatRooms.removeAll { room in
-            room.participantIDs.contains(blockedID) && room.participantIDs.contains(blockerID)
+            room.participantIDs.contains(blockedID)
+                && room.participantIDs.contains(blockerID)
         }
     }
 }
@@ -138,7 +190,8 @@ struct OnboardingView: View {
             Form {
                 Section(header: Text("Select User")) {
                     Picker("User", selection: $selectedUserIndex) {
-                        ForEach(0..<orbitData.users.count, id: \.self) { index in
+                        ForEach(0..<orbitData.users.count, id: \.self) {
+                            index in
                             Text(orbitData.users[index].fullName)
                         }
                     }
@@ -148,7 +201,8 @@ struct OnboardingView: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") {
-                        orbitData.currentUser = orbitData.users[selectedUserIndex]
+                        orbitData.currentUser =
+                            orbitData.users[selectedUserIndex]
                     }
                 }
             }
@@ -245,7 +299,7 @@ struct EditProfileView: View {
 /// Task 3: Create a Meetup Request (for users like Mark).
 struct CreateMeetupRequestView: View {
     @ObservedObject var orbitData: OrbitData
-    @State private var selectedTime: Date = Date()
+    @State private var selectedDate: Date = Date()
     @State private var location: String = ""
     @State private var discussionTopic: String = ""
     @State private var conversationStarter: String = ""
@@ -253,7 +307,11 @@ struct CreateMeetupRequestView: View {
     var body: some View {
         Form {
             Section(header: Text("Schedule Your Meetup")) {
-                DatePicker("Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
+                DatePicker(
+                    "Date and Time", selection: $selectedDate,
+                    in: Date()...Calendar.current.date(
+                        byAdding: .day, value: 1, to: Date())!,
+                    displayedComponents: [.date, .hourAndMinute])
                 TextField("Location (e.g., Mac Hall)", text: $location)
             }
             Section(header: Text("Conversation Details")) {
@@ -265,17 +323,20 @@ struct CreateMeetupRequestView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Send Request") {
-                    guard let currentUser = orbitData.currentUser, !location.isEmpty,
+                    guard let currentUser = orbitData.currentUser,
+                        !location.isEmpty,
                         !discussionTopic.isEmpty, !conversationStarter.isEmpty
                     else { return }
                     let newRequest = MeetupRequest(
                         creatorID: currentUser.id,
-                        time: selectedTime,
+                        time: selectedDate,
                         location: location,
                         discussionTopic: discussionTopic,
                         conversationStarter: conversationStarter
                     )
+                    print("\(newRequest) sent")
                     orbitData.addMeetupRequest(newRequest)
+                    print(" Meetup Requests: \(orbitData.meetupRequests)")
                 }
             }
         }
@@ -291,21 +352,24 @@ struct BrowseMeetupRequestsView: View {
             List {
                 ForEach(orbitData.meetupRequests) { request in
                     // Show only requests not created by the current user.
-                    if let currentUser = orbitData.currentUser, request.creatorID != currentUser.id
+                    if let currentUser = orbitData.currentUser,
+                        request.creatorID != currentUser.id
                     {
                         VStack(alignment: .leading) {
                             Text("Topic: \(request.discussionTopic)")
                                 .font(.headline)
                             Text("Location: \(request.location)")
                             Text(
-                                "Time: \(request.time.formatted(date: .omitted, time: .shortened))")
+                                "Time: \(request.time.formatted(date: .abbreviated, time: .shortened))"
+                            )
                             Text("Starter: \(request.conversationStarter)")
                                 .italic()
                         }
                         .padding(.vertical, 4)
                         .swipeActions(edge: .trailing) {
                             Button("Approve") {
-                                orbitData.approveMeetupRequest(request, by: currentUser.id)
+                                orbitData.approveMeetupRequest(
+                                    request, by: currentUser.id)
                             }
                             .tint(.green)
                         }
@@ -339,9 +403,13 @@ struct ChatListView: View {
                         ChatRoomView(chatRoom: room, orbitData: orbitData)
                     } label: {
                         if let currentUser = orbitData.currentUser,
-                            let otherID = room.participantIDs.first(where: { $0 != currentUser.id }
+                            let otherID = room.participantIDs.first(where: {
+                                $0 != currentUser.id
+                            }
                             ),
-                            let otherUser = orbitData.users.first(where: { $0.id == otherID })
+                            let otherUser = orbitData.users.first(where: {
+                                $0.id == otherID
+                            })
                         {
                             Text("Chat with \(otherUser.fullName)")
                         } else {
@@ -383,11 +451,14 @@ struct ChatRoomView: View {
                         Text(message.text)
                             .padding()
                             .background(
-                                isCurrentUser ? Color.blue.opacity(0.3) : Color.gray.opacity(0.3)
+                                isCurrentUser
+                                    ? Color.blue.opacity(0.3)
+                                    : Color.gray.opacity(0.3)
                             )
                             .cornerRadius(8)
                             .frame(
-                                maxWidth: .infinity, alignment: isCurrentUser ? .trailing : .leading
+                                maxWidth: .infinity,
+                                alignment: isCurrentUser ? .trailing : .leading
                             )
                     }
                 }
@@ -405,17 +476,23 @@ struct ChatRoomView: View {
             VStack {
                 Text("Organize Meetup")
                     .font(.headline)
-                TextField("Enter meeting spot (e.g., beside Bake Chef)", text: $sharedLocation)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                    .padding(.horizontal)
+                TextField(
+                    "Enter meeting spot (e.g., beside Bake Chef)",
+                    text: $sharedLocation
+                )
+                .textFieldStyle(RoundedBorderTextFieldStyle())
+                .padding(.horizontal)
                 Button("Share My Location") {
                     // Simulate sharing location (in a real app, you'd use MapKit/location sharing)
                     showLocationSharedAlert = true
                 }
-                .alert("Location Shared", isPresented: $showLocationSharedAlert) {
+                .alert("Location Shared", isPresented: $showLocationSharedAlert)
+                {
                     Button("OK", role: .cancel) {}
                 } message: {
-                    Text("Your location (\(sharedLocation)) has been shared with your match.")
+                    Text(
+                        "Your location (\(sharedLocation)) has been shared with your match."
+                    )
                 }
             }
             .padding(.vertical)
@@ -432,7 +509,8 @@ struct ChatRoomView: View {
                 .actionSheet(isPresented: $showBlockReportActionSheet) {
                     ActionSheet(
                         title: Text("Block or Report"),
-                        message: Text("Select an action to protect your experience."),
+                        message: Text(
+                            "Select an action to protect your experience."),
                         buttons: [
                             .destructive(Text("Block User")) {
                                 blockUser()
@@ -448,11 +526,15 @@ struct ChatRoomView: View {
     }
 
     private func sendMessage() {
-        guard let currentUser = orbitData.currentUser, !messageText.isEmpty else { return }
-        let newMessage = ChatMessage(senderID: currentUser.id, text: messageText)
+        guard let currentUser = orbitData.currentUser, !messageText.isEmpty
+        else { return }
+        let newMessage = ChatMessage(
+            senderID: currentUser.id, text: messageText)
         localChatRoom.messages.append(newMessage)
         // Update the global chatRooms array.
-        if let index = orbitData.chatRooms.firstIndex(where: { $0.id == localChatRoom.id }) {
+        if let index = orbitData.chatRooms.firstIndex(where: {
+            $0.id == localChatRoom.id
+        }) {
             orbitData.chatRooms[index] = localChatRoom
         }
         messageText = ""
@@ -461,7 +543,9 @@ struct ChatRoomView: View {
     private func blockUser() {
         // Block the other user from this chat.
         guard let currentUser = orbitData.currentUser else { return }
-        if let otherID = localChatRoom.participantIDs.first(where: { $0 != currentUser.id }) {
+        if let otherID = localChatRoom.participantIDs.first(where: {
+            $0 != currentUser.id
+        }) {
             orbitData.blockUser(blockerID: currentUser.id, blockedID: otherID)
         }
     }
@@ -491,10 +575,12 @@ struct MainTabView: View {
                 VStack(spacing: 20) {
                     NavigationLink(
                         "Create Meetup Request",
-                        destination: CreateMeetupRequestView(orbitData: orbitData))
+                        destination: CreateMeetupRequestView(
+                            orbitData: orbitData))
                     NavigationLink(
                         "Browse Requests",
-                        destination: BrowseMeetupRequestsView(orbitData: orbitData))
+                        destination: BrowseMeetupRequestsView(
+                            orbitData: orbitData))
                 }
                 .navigationTitle("Meetups")
             }
