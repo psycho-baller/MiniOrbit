@@ -50,14 +50,7 @@ struct ChatRoom: Identifiable {
 
 /// This ObservableObject simulates our full‑stack database.
 class OrbitData: ObservableObject {
-    @Published var users: [User] = [
-        User(
-            fullName: "Alice Johnson", email: "alice@example.com", university: "University A",
-            interests: ["Reading", "Hiking"], universityID: "U12345", isVerified: true),
-        User(
-            fullName: "Bob Smith", email: "bob@example.com", university: "University B",
-            interests: ["Cooking", "Gaming"], universityID: "U67890", isVerified: true),
-    ]
+    @Published var users: [User] = []
     @Published var currentUser: User? = nil
 
     @Published var meetupRequests: [MeetupRequest] = []
@@ -131,24 +124,58 @@ class OrbitData: ObservableObject {
 struct OnboardingView: View {
     @ObservedObject var orbitData: OrbitData
 
-    @State private var selectedUserIndex: Int = 0
+    @State private var fullName: String = ""
+    @State private var email: String = ""
+    @State private var university: String = ""
+    @State private var interests: String = ""  // Comma-separated list.
+    @State private var universityID: String = ""
+    @State private var isVerified: Bool = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("Select User")) {
-                    Picker("User", selection: $selectedUserIndex) {
-                        ForEach(0..<orbitData.users.count, id: \.self) { index in
-                            Text(orbitData.users[index].fullName)
+                Section(header: Text("Personal Information")) {
+                    TextField("Full Name", text: $fullName)
+                        .textCase(.uppercase)
+                    TextField("Email", text: $email)
+                        .textContentType(.emailAddress)
+                    TextField("University", text: $university)
+                }
+                Section(header: Text("Interests")) {
+                    TextField("Enter interests (comma separated)", text: $interests)
+                }
+                Section(header: Text("University ID Verification")) {
+                    TextField("Enter your University ID", text: $universityID)
+                        .textCase(.lowercase)
+                    Button(action: {
+                        // For demo: any non-empty universityID is accepted.
+                        if !universityID.isEmpty {
+                            isVerified = true
                         }
+                    }) {
+                        Text(isVerified ? "Verified" : "Verify University ID")
                     }
+                    .disabled(isVerified)
                 }
             }
             .navigationTitle("Onboarding")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") {
-                        orbitData.currentUser = orbitData.users[selectedUserIndex]
+                        guard isVerified, !fullName.isEmpty, !email.isEmpty, !university.isEmpty
+                        else { return }
+                        let interestsArray = interests.split(separator: ",").map {
+                            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                        let newUser = User(
+                            fullName: fullName,
+                            email: email,
+                            university: university,
+                            interests: interestsArray,
+                            universityID: universityID,
+                            isVerified: isVerified
+                        )
+                        orbitData.addUser(newUser)
                     }
                 }
             }
@@ -527,9 +554,6 @@ struct ContentView: View {
     }
 }
 
-#Preview {
-    ContentView()
-}
 #Preview {
     ContentView()
 }
