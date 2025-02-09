@@ -20,94 +20,135 @@ struct User: Identifiable, Codable, Equatable {
     var isVerified: Bool = false
 }
 
-// MARK: - Simulated Database
+/// Represents a meetup request created by a user (Task 3).
+struct MeetupRequest: Identifiable, Codable {
+    var id: UUID = UUID()
+    var creatorID: UUID
+    var time: Date
+    var location: String
+    var discussionTopic: String
+    var conversationStarter: String
+    var approvedBy: [UUID] = []  // IDs of users who approved this request.
+}
 
-/// A simple in-memory user database.
-class UserDatabase: ObservableObject {
-    @Published var users: [User] = []
-    // For this demo, we keep track of the currently logged in user.
-    @Published var currentUser: User?
+/// Represents a single chat message.
+struct ChatMessage: Identifiable {
+    var id: UUID = UUID()
+    var senderID: UUID
+    var text: String
+    var timestamp: Date = Date()
+}
 
+/// Represents a chat room between two users.
+struct ChatRoom: Identifiable {
+    var id: UUID = UUID()
+    var participantIDs: [UUID]  // Should contain exactly 2 users.
+    var messages: [ChatMessage] = []
+}
+
+// MARK: - Simulated Database (Orbit Data)
+
+/// This ObservableObject simulates our full‑stack database.
+class OrbitData: ObservableObject {
+    @Published var users: [User] = [
+        User(
+            fullName: "Alice Johnson", email: "alice@example.com", university: "University A",
+            interests: ["Reading", "Hiking"], universityID: "U12345", isVerified: true),
+        User(
+            fullName: "Bob Smith", email: "bob@example.com", university: "University B",
+            interests: ["Cooking", "Gaming"], universityID: "U67890", isVerified: true),
+    ]
+    @Published var currentUser: User? = nil
+
+    @Published var meetupRequests: [MeetupRequest] = []
+    @Published var chatRooms: [ChatRoom] = []
+    // A mapping from a user id to a list of blocked user ids.
+    @Published var blockedUsers: [UUID: [UUID]] = [:]
+
+    /// Adds a new user and sets them as the current user.
     func addUser(_ user: User) {
         users.append(user)
         currentUser = user
     }
 
+    /// Updates an existing user.
     func updateUser(_ updatedUser: User) {
         if let index = users.firstIndex(where: { $0.id == updatedUser.id }) {
             users[index] = updatedUser
             currentUser = updatedUser
         }
     }
+
+    /// Adds a new meetup request.
+    func addMeetupRequest(_ request: MeetupRequest) {
+        meetupRequests.append(request)
+
+    }
+
+    /// Approves a meetup request for the given user.
+    func approveMeetupRequest(_ request: MeetupRequest, by userID: UUID) {
+        if let index = meetupRequests.firstIndex(where: { $0.id == request.id }) {
+            // Avoid duplicate approvals.
+            if !meetupRequests[index].approvedBy.contains(userID) {
+                meetupRequests[index].approvedBy.append(userID)
+            }
+            // If both the creator and an approver have matched, create a chat room.
+            let creatorID = meetupRequests[index].creatorID
+            if meetupRequests[index].approvedBy.contains(creatorID) == false,  // Creator never approves own request
+                meetupRequests[index].approvedBy.contains(userID),
+                userID != creatorID
+            {
+                // Check if a chat room already exists between these two users.
+                if !chatRooms.contains(where: {
+                    $0.participantIDs.sorted() == [creatorID, userID].sorted()
+                }) {
+                    let newChatRoom = ChatRoom(participantIDs: [creatorID, userID])
+                    chatRooms.append(newChatRoom)
+                }
+            }
+        }
+    }
+
+    /// Blocks a user for the current user.
+    func blockUser(blockerID: UUID, blockedID: UUID) {
+        if blockedUsers[blockerID] != nil {
+            if !blockedUsers[blockerID]!.contains(blockedID) {
+                blockedUsers[blockerID]!.append(blockedID)
+            }
+        } else {
+            blockedUsers[blockerID] = [blockedID]
+        }
+        // Remove any chat room between these users.
+        chatRooms.removeAll { room in
+            room.participantIDs.contains(blockedID) && room.participantIDs.contains(blockerID)
+        }
+    }
 }
 
-// MARK: - Onboarding View
+// MARK: - Onboarding & Profile Editing (Tasks 1 & 2)
 
-/// The onboarding flow where users input personal info and verify their university ID.
+/// Onboarding flow: new users input personal info and verify their university ID.
 struct OnboardingView: View {
-    @ObservedObject var userDB: UserDatabase
+    @ObservedObject var orbitData: OrbitData
 
-    @State private var fullName: String = ""
-    @State private var email: String = ""
-    @State private var university: String = ""
-    @State private var interests: String = ""  // Comma-separated list.
-    @State private var universityID: String = ""
-    @State private var isVerified: Bool = false
+    @State private var selectedUserIndex: Int = 0
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("Personal Information")) {
-                    TextField("Full Name", text: $fullName)
-                        .textCase(.uppercase)
-                    TextField("Email", text: $email)
-                        .textContentType(.emailAddress)
-                    TextField("University", text: $university)
-                }
-
-                Section(header: Text("Interests")) {
-                    TextField(
-                        "Enter interests (comma separated)", text: $interests)
-                }
-
-                Section(header: Text("University ID Verification")) {
-                    TextField("Enter your University ID", text: $universityID)
-                        .textCase(.lowercase)
-                    Button(action: {
-                        // For demo purposes, we assume any non-empty universityID means verification.
-                        if !universityID.isEmpty {
-                            isVerified = true
+                Section(header: Text("Select User")) {
+                    Picker("User", selection: $selectedUserIndex) {
+                        ForEach(0..<orbitData.users.count, id: \.self) { index in
+                            Text(orbitData.users[index].fullName)
                         }
-                    }) {
-                        Text(isVerified ? "Verified" : "Verify University ID")
                     }
-                    .disabled(isVerified)
                 }
             }
             .navigationTitle("Onboarding")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Submit") {
-                        // Ensure required fields are filled and university ID is verified.
-                        guard isVerified, !fullName.isEmpty, !email.isEmpty,
-                            !university.isEmpty
-                        else { return }
-                        let interestsArray =
-                            interests
-                            .split(separator: ",")
-                            .map {
-                                $0.trimmingCharacters(
-                                    in: .whitespacesAndNewlines)
-                            }
-                        let newUser = User(
-                            fullName: fullName,
-                            email: email,
-                            university: university,
-                            interests: interestsArray,
-                            universityID: universityID,
-                            isVerified: isVerified
-                        )
-                        userDB.addUser(newUser)
+                        orbitData.currentUser = orbitData.users[selectedUserIndex]
                     }
                 }
             }
@@ -115,15 +156,13 @@ struct OnboardingView: View {
     }
 }
 
-// MARK: - Profile and Editing Views
-
-/// Displays the current user's profile and a link to edit their information.
+/// Displays current user’s profile and allows editing.
 struct ProfileView: View {
-    @ObservedObject var userDB: UserDatabase
+    @ObservedObject var orbitData: OrbitData
 
     var body: some View {
         NavigationStack {
-            if let user = userDB.currentUser {
+            if let user = orbitData.currentUser {
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Name: \(user.fullName)")
                     Text("Email: \(user.email)")
@@ -133,7 +172,7 @@ struct ProfileView: View {
                     Text("Verified: \(user.isVerified ? "Yes" : "No")")
 
                     NavigationLink("Edit Profile") {
-                        EditProfileView(user: user, userDB: userDB)
+                        EditProfileView(user: user, orbitData: orbitData)
                     }
                     .padding(.top, 20)
                 }
@@ -146,10 +185,10 @@ struct ProfileView: View {
     }
 }
 
-/// Allows the user to update personal information after account creation.
+/// Allows a user to update personal information.
 struct EditProfileView: View {
     @State var user: User
-    @ObservedObject var userDB: UserDatabase
+    @ObservedObject var orbitData: OrbitData
 
     @State private var fullName: String = ""
     @State private var email: String = ""
@@ -178,25 +217,20 @@ struct EditProfileView: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    let interestsArray =
-                        interests
-                        .split(separator: ",")
-                        .map {
-                            $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
+                    let interestsArray = interests.split(separator: ",").map {
+                        $0.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                     var updatedUser = user
                     updatedUser.fullName = fullName
                     updatedUser.email = email
                     updatedUser.university = university
                     updatedUser.interests = interestsArray
                     updatedUser.universityID = universityID
-                    // In a real app, you might re-verify sensitive changes.
-                    userDB.updateUser(updatedUser)
+                    orbitData.updateUser(updatedUser)
                 }
             }
         }
         .onAppear {
-            // Initialize fields with the user's current information.
             fullName = user.fullName
             email = user.email
             university = user.university
@@ -206,22 +240,296 @@ struct EditProfileView: View {
     }
 }
 
-// MARK: - Main ContentView
+// MARK: - Meetup Request Flow (Tasks 3 & 4)
 
-struct ContentView: View {
-    @StateObject var userDB = UserDatabase()
+/// Task 3: Create a Meetup Request (for users like Mark).
+struct CreateMeetupRequestView: View {
+    @ObservedObject var orbitData: OrbitData
+    @State private var selectedTime: Date = Date()
+    @State private var location: String = ""
+    @State private var discussionTopic: String = ""
+    @State private var conversationStarter: String = ""
 
     var body: some View {
-        NavigationStack {
-            if userDB.currentUser != nil {
-                ProfileView(userDB: userDB)
-            } else {
-                OnboardingView(userDB: userDB)
+        Form {
+            Section(header: Text("Schedule Your Meetup")) {
+                DatePicker("Time", selection: $selectedTime, displayedComponents: .hourAndMinute)
+                TextField("Location (e.g., Mac Hall)", text: $location)
+            }
+            Section(header: Text("Conversation Details")) {
+                TextField("Discussion Topic", text: $discussionTopic)
+                TextField("Conversation Starter", text: $conversationStarter)
+            }
+        }
+        .navigationTitle("Create Meetup Request")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Send Request") {
+                    guard let currentUser = orbitData.currentUser, !location.isEmpty,
+                        !discussionTopic.isEmpty, !conversationStarter.isEmpty
+                    else { return }
+                    let newRequest = MeetupRequest(
+                        creatorID: currentUser.id,
+                        time: selectedTime,
+                        location: location,
+                        discussionTopic: discussionTopic,
+                        conversationStarter: conversationStarter
+                    )
+                    orbitData.addMeetupRequest(newRequest)
+                }
             }
         }
     }
 }
 
+/// Task 4: Browse and Approve Meetup Requests (for users like Ken).
+struct BrowseMeetupRequestsView: View {
+    @ObservedObject var orbitData: OrbitData
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(orbitData.meetupRequests) { request in
+                    // Show only requests not created by the current user.
+                    if let currentUser = orbitData.currentUser, request.creatorID != currentUser.id
+                    {
+                        VStack(alignment: .leading) {
+                            Text("Topic: \(request.discussionTopic)")
+                                .font(.headline)
+                            Text("Location: \(request.location)")
+                            Text(
+                                "Time: \(request.time.formatted(date: .omitted, time: .shortened))")
+                            Text("Starter: \(request.conversationStarter)")
+                                .italic()
+                        }
+                        .padding(.vertical, 4)
+                        .swipeActions(edge: .trailing) {
+                            Button("Approve") {
+                                orbitData.approveMeetupRequest(request, by: currentUser.id)
+                            }
+                            .tint(.green)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Browse Requests")
+        }
+    }
+}
+
+// MARK: - Chat & Meetup Coordination (Tasks 5 & 6)
+
+/// Displays the list of chat rooms (matches) for the current user.
+struct ChatListView: View {
+    @ObservedObject var orbitData: OrbitData
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(
+                    orbitData.chatRooms.filter { room in
+                        // Only show chat rooms where currentUser is a participant.
+                        if let currentUser = orbitData.currentUser {
+                            return room.participantIDs.contains(currentUser.id)
+                        }
+                        return false
+                    }
+                ) { room in
+                    NavigationLink {
+                        ChatRoomView(chatRoom: room, orbitData: orbitData)
+                    } label: {
+                        if let currentUser = orbitData.currentUser,
+                            let otherID = room.participantIDs.first(where: { $0 != currentUser.id }
+                            ),
+                            let otherUser = orbitData.users.first(where: { $0.id == otherID })
+                        {
+                            Text("Chat with \(otherUser.fullName)")
+                        } else {
+                            Text("Chat")
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Chats")
+        }
+    }
+}
+
+/// ChatRoomView shows messages between two matched users and includes controls for organizing the meetup (location sharing) as well as blocking/reporting (Task 6).
+struct ChatRoomView: View {
+    let chatRoom: ChatRoom
+    @ObservedObject var orbitData: OrbitData
+
+    @State private var messageText: String = ""
+    // For simulating location sharing.
+    @State private var sharedLocation: String = ""
+    @State private var showLocationSharedAlert: Bool = false
+    @State private var showBlockReportActionSheet: Bool = false
+    @State private var localChatRoom: ChatRoom
+
+    init(chatRoom: ChatRoom, orbitData: OrbitData) {
+        self.chatRoom = chatRoom
+        self.orbitData = orbitData
+        // Create a local copy to allow editing.
+        _localChatRoom = State(initialValue: chatRoom)
+    }
+
+    var body: some View {
+        VStack {
+            List(localChatRoom.messages) { message in
+                HStack {
+                    if let currentUser = orbitData.currentUser {
+                        let isCurrentUser = message.senderID == currentUser.id
+                        Text(message.text)
+                            .padding()
+                            .background(
+                                isCurrentUser ? Color.blue.opacity(0.3) : Color.gray.opacity(0.3)
+                            )
+                            .cornerRadius(8)
+                            .frame(
+                                maxWidth: .infinity, alignment: isCurrentUser ? .trailing : .leading
+                            )
+                    }
+                }
+            }
+            HStack {
+                TextField("Message...", text: $messageText)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                Button("Send") {
+                    sendMessage()
+                }
+            }
+            .padding()
+            Divider()
+            // Meetup Coordination Section (Task 5)
+            VStack {
+                Text("Organize Meetup")
+                    .font(.headline)
+                TextField("Enter meeting spot (e.g., beside Bake Chef)", text: $sharedLocation)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+                    .padding(.horizontal)
+                Button("Share My Location") {
+                    // Simulate sharing location (in a real app, you'd use MapKit/location sharing)
+                    showLocationSharedAlert = true
+                }
+                .alert("Location Shared", isPresented: $showLocationSharedAlert) {
+                    Button("OK", role: .cancel) {}
+                } message: {
+                    Text("Your location (\(sharedLocation)) has been shared with your match.")
+                }
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle("Chat")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                // Block/Report button (Task 6)
+                Button {
+                    showBlockReportActionSheet = true
+                } label: {
+                    Image(systemName: "exclamationmark.triangle")
+                }
+                .actionSheet(isPresented: $showBlockReportActionSheet) {
+                    ActionSheet(
+                        title: Text("Block or Report"),
+                        message: Text("Select an action to protect your experience."),
+                        buttons: [
+                            .destructive(Text("Block User")) {
+                                blockUser()
+                            },
+                            .default(Text("Report User")) {
+                                reportUser()
+                            },
+                            .cancel(),
+                        ])
+                }
+            }
+        }
+    }
+
+    private func sendMessage() {
+        guard let currentUser = orbitData.currentUser, !messageText.isEmpty else { return }
+        let newMessage = ChatMessage(senderID: currentUser.id, text: messageText)
+        localChatRoom.messages.append(newMessage)
+        // Update the global chatRooms array.
+        if let index = orbitData.chatRooms.firstIndex(where: { $0.id == localChatRoom.id }) {
+            orbitData.chatRooms[index] = localChatRoom
+        }
+        messageText = ""
+    }
+
+    private func blockUser() {
+        // Block the other user from this chat.
+        guard let currentUser = orbitData.currentUser else { return }
+        if let otherID = localChatRoom.participantIDs.first(where: { $0 != currentUser.id }) {
+            orbitData.blockUser(blockerID: currentUser.id, blockedID: otherID)
+        }
+    }
+
+    private func reportUser() {
+        // For demo: simply block the user after reporting.
+        blockUser()
+        // In a real app, you would send a report to a moderation team.
+    }
+}
+
+// MARK: - Main App Navigation (TabView)
+
+struct MainTabView: View {
+    @ObservedObject var orbitData: OrbitData
+
+    var body: some View {
+        TabView {
+            NavigationStack {
+                ProfileView(orbitData: orbitData)
+            }
+            .tabItem {
+                Label("Profile", systemImage: "person.circle")
+            }
+
+            NavigationStack {
+                VStack(spacing: 20) {
+                    NavigationLink(
+                        "Create Meetup Request",
+                        destination: CreateMeetupRequestView(orbitData: orbitData))
+                    NavigationLink(
+                        "Browse Requests",
+                        destination: BrowseMeetupRequestsView(orbitData: orbitData))
+                }
+                .navigationTitle("Meetups")
+            }
+            .tabItem {
+                Label("Meetups", systemImage: "calendar")
+            }
+
+            NavigationStack {
+                ChatListView(orbitData: orbitData)
+            }
+            .tabItem {
+                Label("Chats", systemImage: "message")
+            }
+        }
+    }
+}
+
+// MARK: - ContentView: Entry Point for Logged-in Users
+
+struct ContentView: View {
+    @StateObject var orbitData = OrbitData()
+
+    var body: some View {
+        if orbitData.currentUser == nil {
+            // If no user is logged in, show onboarding.
+            OnboardingView(orbitData: orbitData)
+        } else {
+            MainTabView(orbitData: orbitData)
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}
 #Preview {
     ContentView()
 }
