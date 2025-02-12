@@ -434,34 +434,6 @@ struct OnboardingView: View {
     }
 }
 
-/// Displays current user’s profile and allows editing.
-struct ProfileView: View {
-    @ObservedObject var orbitData: OrbitData
-
-    var body: some View {
-        NavigationStack {
-            if let user = orbitData.currentUser {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Name: \(user.fullName)")
-                    Text("Email: \(user.email)")
-                    Text("University: \(user.university)")
-                    Text("Interests: \(user.interests.joined(separator: ", "))")
-                    Text("University ID: \(user.universityID)")
-                    Text("Verified: \(user.isVerified ? "Yes" : "No")")
-
-                    NavigationLink("Edit Profile") {
-                        EditProfileView(user: user, orbitData: orbitData)
-                    }
-                    .padding(.top, 20)
-                }
-                .padding()
-                .navigationTitle("Profile")
-            } else {
-                Text("No user logged in.")
-            }
-        }
-    }
-}
 
 /// Allows a user to update personal information.
 struct EditProfileView: View {
