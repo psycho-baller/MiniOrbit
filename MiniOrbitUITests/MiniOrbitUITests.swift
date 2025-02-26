@@ -13,7 +13,7 @@ final class MiniOrbitUITests: XCTestCase {
         // Put setup code here. This method is called before the invocation of each test method in the class.
 
         // In UI tests it is usually best to stop immediately when a failure occurs.
-        continueAfterFailure = false
+        continueAfterFailure = true
 
         // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
@@ -66,11 +66,11 @@ final class MiniOrbitUITests: XCTestCase {
         
         /// The audit can report multiple issues but with "continueAfterFailure = false" it will stop at the first issue.
         /// Change continueAfterFailure = true to allow the audit to report multiple issues
-//        try app.performAccessibilityAudit()
+        try app.performAccessibilityAudit()
         
         
         /// You can set specific features for the audit to check for
-//        try app.performAccessibilityAudit(for:  XCUIAccessibilityAuditType.textClipped)
+        try app.performAccessibilityAudit(for:  XCUIAccessibilityAuditType.textClipped)
         
     }
     

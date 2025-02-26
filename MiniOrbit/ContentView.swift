@@ -11,6 +11,8 @@ import Vapi
 
 // MARK: - Models
 
+let VAPI_API_KEY = ""
+
 /// Represents a user in the Orbit app.
 struct User: Identifiable, Codable, Equatable {
     let id: UUID
@@ -133,7 +135,8 @@ class OrbitData: ObservableObject {
 
     /// Approves a meetup request for the given user.
     func approveMeetupRequest(_ request: MeetupRequest, by userID: UUID) {
-        if let index = meetupRequests.firstIndex(where: { $0.id == request.id }) {
+        if let index = meetupRequests.firstIndex(where: { $0.id == request.id })
+        {
             print("Approving meetup request for \(request.id)")
             // Avoid duplicate approvals.
             if !meetupRequests[index].approvedBy.contains(userID) {
@@ -190,7 +193,7 @@ class CallManager: ObservableObject {
 
     init() {
         vapi = Vapi(
-            publicKey: ""
+            publicKey: VAPI_API_KEY
         )
     }
 
@@ -358,7 +361,8 @@ class CallManager: ObservableObject {
                         ]
                     ],
                 ],
-                "firstMessage": "Let me know if you have anything you need help with inside Orbit",
+                "firstMessage":
+                    "Let me know if you have anything you need help with inside Orbit",
                 "voice": "jennifer-playht",
             ] as [String: Any]
         do {
@@ -434,7 +438,6 @@ struct OnboardingView: View {
     }
 }
 
-
 /// Allows a user to update personal information.
 struct EditProfileView: View {
     @State var user: User
@@ -499,6 +502,7 @@ struct CreateMeetupRequestView: View {
     @State private var location: String = ""
     @State private var discussionTopic: String = ""
     @State private var conversationStarter: String = ""
+    @Environment(\.dismiss) private var dismiss  // Add this line
 
     var body: some View {
         Form {
@@ -507,7 +511,8 @@ struct CreateMeetupRequestView: View {
                     "Date and Time", selection: $selectedDate,
                     in: Date()...Calendar.current.date(
                         byAdding: .day, value: 1, to: Date())!,
-                    displayedComponents: [.date, .hourAndMinute])
+                    displayedComponents: [.date, .hourAndMinute]
+                )
                 TextField("Location (e.g., Mac Hall)", text: $location)
             }
             Section(header: Text("Conversation Details")) {
@@ -521,8 +526,10 @@ struct CreateMeetupRequestView: View {
                 Button("Send Request") {
                     guard let currentUser = orbitData.currentUser,
                         !location.isEmpty,
-                        !discussionTopic.isEmpty, !conversationStarter.isEmpty
+                        !discussionTopic.isEmpty,
+                        !conversationStarter.isEmpty
                     else { return }
+
                     let newRequest = MeetupRequest(
                         creatorID: currentUser.id,
                         time: selectedDate,
@@ -530,15 +537,20 @@ struct CreateMeetupRequestView: View {
                         discussionTopic: discussionTopic,
                         conversationStarter: conversationStarter
                     )
+
                     print("\(newRequest) sent")
                     orbitData.addMeetupRequest(newRequest)
-                    print(" Meetup Requests: \(orbitData.meetupRequests)")
+                    print("Meetup Requests: \(orbitData.meetupRequests)")
+
+                    // **Dismiss and navigate back to the home screen**
+                    dismiss()
                 }
             }
         }
     }
 }
 
+/// Task 4: Browse and Approve Meetup Requests (for users like Ken).
 /// Task 4: Browse and Approve Meetup Requests (for users like Ken).
 struct BrowseMeetupRequestsView: View {
     @ObservedObject var orbitData: OrbitData
@@ -548,8 +560,7 @@ struct BrowseMeetupRequestsView: View {
             List {
                 ForEach(orbitData.meetupRequests) { request in
                     // Show only requests not created by the current user.
-                    if let currentUser = orbitData.currentUser,
-                        request.creatorID != currentUser.id
+                    if let currentUser = orbitData.currentUser  //                        ,request.creatorID != currentUser.id
                     {
                         VStack(alignment: .leading) {
                             Text("Topic: \(request.discussionTopic)")
@@ -568,12 +579,22 @@ struct BrowseMeetupRequestsView: View {
                                     request, by: currentUser.id)
                             }
                             .tint(.green)
+
+                            Button(role: .destructive) {
+                                removeMeetupRequest(request)
+                            } label: {
+                                Label("Remove", systemImage: "trash")
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Browse Requests")
         }
+    }
+
+    private func removeMeetupRequest(_ request: MeetupRequest) {
+        orbitData.meetupRequests.removeAll { $0.id == request.id }
     }
 }
 
@@ -682,7 +703,8 @@ struct ChatRoomView: View {
                     // Simulate sharing location (in a real app, you'd use MapKit/location sharing)
                     showLocationSharedAlert = true
                 }
-                .alert("Location Shared", isPresented: $showLocationSharedAlert) {
+                .alert("Location Shared", isPresented: $showLocationSharedAlert)
+                {
                     Button("OK", role: .cancel) {}
                 } message: {
                     Text(
